@@ -1,4 +1,5 @@
-// No-limit Texas Hold'em engine (server-authoritative)
+// No-limit Texas Hold'em engine (server-authoritative).
+// Messages are sent as language-neutral codes; the browser translates them.
 const crypto = require('crypto');
 const E = require('./public/eval.js');
 
@@ -11,15 +12,18 @@ const CFG = {
   NEXT_MS: 7000,
   FOLD_NEXT_MS: 3500,
   RUNOUT_MS: 1400,
+  DISCONNECT_MS: 60000,   // remove a player who has been offline this long
+  EMPTY_ROOM_MS: 30 * 60000,
 };
 
 const rooms = new Map();
 let onChange = () => {};
 const setOnChange = (f) => { onChange = f; };
 const changed = (room) => onChange(room);
+const err = (code, params) => ({ error: code, params });
 
 function cleanId(id) {
-  return String(id || 'main').replace(/[^\w-]/g, '').slice(0, 20) || 'main';
+  return String(id || 'MAIN').toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20) || 'MAIN';
 }
 function getRoom(id) {
   id = cleanId(id);
@@ -27,17 +31,15 @@ function getRoom(id) {
     rooms.set(id, {
       id, seats: Array(CFG.MAX_SEATS).fill(null), byToken: new Map(),
       button: -1, hand: null, handNo: 0, running: false, log: [],
-      nextTimer: null, nextAt: 0, turnTimer: null, runTimer: null,
+      nextTimer: null, nextAt: 0, turnTimer: null, runTimer: null, emptySince: Date.now(),
     });
   }
   return rooms.get(id);
 }
-function log(room, msg) {
-  room.log.push({ t: Date.now(), msg });
+function log(room, k, p) {
+  room.log.push({ t: Date.now(), k, p: p || {} });
   if (room.log.length > 80) room.log.shift();
 }
-const money = (n) => '$' + n.toLocaleString('en-US');
-const cardStr = (c) => E.RANK_LABEL[c >> 2] + '♠♥♦♣'[c & 3];
 
 function nextSeat(from, pred) {
   const N = CFG.MAX_SEATS;
@@ -63,28 +65,30 @@ function put(p, amt) {
 const isOver = (h) => h.stage === 'showdown' || h.stage === 'done';
 const handPlayers = (room) => room.hand.players.map((i) => room.seats[i]);
 const livePlayers = (room) => handPlayers(room).filter((p) => !p.folded);
+const seatedCount = (room) => room.seats.filter((p) => p && !p.leaving).length;
 
 // ---------- lobby actions ----------
 function join(room, token, name, wantSeat) {
   name = String(name || '').trim().slice(0, 12) || 'Player';
   const existing = token && room.byToken.get(token);
-  if (existing) {
+  if (existing && !existing.leaving) {
     existing.name = name;
     changed(room);
     return { token: existing.token, seat: existing.seat };
   }
   let seat = room.seats.findIndex((s) => !s);
   if (Number.isInteger(wantSeat) && wantSeat >= 0 && wantSeat < CFG.MAX_SEATS && !room.seats[wantSeat]) seat = wantSeat;
-  if (seat < 0) return { error: `자리가 꽉 찼어요 (최대 ${CFG.MAX_SEATS}명)` };
+  if (seat < 0) return err('seatsFull');
   token = crypto.randomBytes(16).toString('hex');
   const p = {
-    token, name, seat, chips: CFG.START_CHIPS, connected: false, sittingOut: false,
+    token, name, seat, chips: CFG.START_CHIPS, connected: false, discAt: Date.now(), sittingOut: false,
     inHand: false, hole: null, bet: 0, total: 0, folded: false, allIn: false,
     acted: false, raiseLocked: false, lastAction: '', timeouts: 0, leaving: false,
   };
   room.seats[seat] = p;
   room.byToken.set(token, p);
-  log(room, `${name} 님이 입장했습니다`);
+  room.emptySince = 0;
+  log(room, 'joined', { name });
   maybeStart(room);
   changed(room);
   return { token, seat };
@@ -93,42 +97,53 @@ function join(room, token, name, wantSeat) {
 function removePlayer(room, p) {
   if (room.seats[p.seat] === p) room.seats[p.seat] = null;
   room.byToken.delete(p.token);
+  if (seatedCount(room) === 0) resetRoom(room);
+}
+function resetRoom(room) {
+  clearTimeout(room.nextTimer); clearTimeout(room.turnTimer); clearTimeout(room.runTimer);
+  room.nextTimer = null; room.nextAt = 0;
+  room.running = false; room.hand = null; room.button = -1;
+  room.emptySince = Date.now();
 }
 
-function leave(room, token) {
+function leave(room, token, reason) {
   const p = room.byToken.get(token);
-  if (!p) return { error: '플레이어를 찾을 수 없어요' };
+  if (!p) return err('noPlayer');
+  if (p.leaving) return { ok: true };
   const h = room.hand;
-  log(room, `${p.name} 님이 나갔습니다`);
+  log(room, reason === 'idle' ? 'idle' : 'left', { name: p.name });
   if (h && h.players.includes(p.seat)) {
+    // keep the seat object until the hand is cleared (pot math still references it)
     p.leaving = true;
     if (!isOver(h) && !p.folded) {
-      if (h.toAct === p.seat) return act(room, token, 'fold', null, true);
-      p.folded = true; p.lastAction = '폴드';
+      if (h.toAct === p.seat) { act(room, token, 'fold', null, true); return { ok: true }; }
+      p.folded = true; p.lastAction = 'fold';
       const live = livePlayers(room);
-      if (live.length === 1) return winUncontested(room, live[0]);
+      if (live.length === 1) { winUncontested(room, live[0]); return { ok: true }; }
     }
-  } else removePlayer(room, p);
+  } else {
+    removePlayer(room, p);
+  }
   changed(room);
   return { ok: true };
 }
 
 function start(room) {
   if (room.running) return { ok: true };
-  const n = room.seats.filter((p) => p && p.chips > 0 && !p.sittingOut).length;
-  if (n < 2) return { error: '최소 2명이 앉아 있어야 시작할 수 있어요' };
+  const n = room.seats.filter((p) => p && p.chips > 0 && !p.sittingOut && !p.leaving).length;
+  if (n < 2) return err('needTwo');
   room.running = true;
-  log(room, '게임을 시작합니다');
+  log(room, 'start');
   startHand(room);
   return { ok: true };
 }
 
 function toggleSitOut(room, token) {
   const p = room.byToken.get(token);
-  if (!p) return { error: '플레이어를 찾을 수 없어요' };
+  if (!p) return err('noPlayer');
   p.sittingOut = !p.sittingOut;
   p.timeouts = 0;
-  log(room, `${p.name} 님이 ${p.sittingOut ? '자리를 비웠습니다' : '돌아왔습니다'}`);
+  log(room, p.sittingOut ? 'sitout' : 'back', { name: p.name });
   if (!p.sittingOut) maybeStart(room);
   changed(room);
   return { ok: true };
@@ -136,12 +151,12 @@ function toggleSitOut(room, token) {
 
 function rebuy(room, token) {
   const p = room.byToken.get(token);
-  if (!p) return { error: '플레이어를 찾을 수 없어요' };
-  if (p.chips > 0) return { error: '칩이 다 떨어졌을 때만 다시 받을 수 있어요' };
+  if (!p) return err('noPlayer');
+  if (p.chips > 0) return err('rebuyBroke');
   const h = room.hand;
-  if (h && h.players.includes(p.seat) && !isOver(h)) return { error: '이번 핸드가 끝난 뒤에 받을 수 있어요' };
+  if (h && h.players.includes(p.seat) && !isOver(h)) return err('rebuyAfter');
   p.chips = CFG.START_CHIPS;
-  log(room, `${p.name} 님이 ${money(CFG.START_CHIPS)}로 다시 시작합니다`);
+  log(room, 'rebuy', { name: p.name, amount: CFG.START_CHIPS });
   maybeStart(room);
   changed(room);
   return { ok: true };
@@ -149,7 +164,10 @@ function rebuy(room, token) {
 
 function setConnected(room, token, on) {
   const p = room.byToken.get(token);
-  if (p && p.connected !== on) { p.connected = on; changed(room); }
+  if (!p || p.connected === on) return;
+  p.connected = on;
+  p.discAt = on ? 0 : Date.now();
+  changed(room);
 }
 
 function maybeStart(room) {
@@ -160,6 +178,17 @@ function scheduleNext(room, ms) {
   room.nextAt = Date.now() + ms;
   room.nextTimer = setTimeout(() => startHand(room), ms);
 }
+
+// remove players who closed the page; forget rooms nobody uses
+setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    for (const p of room.seats) {
+      if (p && !p.connected && !p.leaving && p.discAt && now - p.discAt > CFG.DISCONNECT_MS) leave(room, p.token, 'idle');
+    }
+    if (seatedCount(room) === 0 && room.emptySince && now - room.emptySince > CFG.EMPTY_ROOM_MS) rooms.delete(room.id);
+  }
+}, 5000).unref();
 
 // ---------- hand flow ----------
 function startHand(room) {
@@ -195,7 +224,7 @@ function startHand(room) {
   put(room.seats[sb], CFG.SB); room.seats[sb].lastAction = 'SB';
   put(room.seats[bb], CFG.BB); room.seats[bb].lastAction = 'BB';
   h.currentBet = Math.max(room.seats[sb].bet, room.seats[bb].bet);
-  log(room, `── 핸드 #${room.handNo} · 딜러 ${room.seats[btn].name} ──`);
+  log(room, 'hand', { no: room.handNo, dealer: room.seats[btn].name });
   advance(room, bb);
 }
 
@@ -234,8 +263,7 @@ function dealNext(room) {
   h.deck.pop(); // burn
   if (h.board.length === 0) { h.board.push(h.deck.pop(), h.deck.pop(), h.deck.pop()); h.stage = 'flop'; }
   else { h.board.push(h.deck.pop()); h.stage = h.board.length === 4 ? 'turn' : 'river'; }
-  const label = { flop: '플랍', turn: '턴', river: '리버' }[h.stage];
-  log(room, `${label}: ${h.board.map(cardStr).join(' ')}`);
+  log(room, 'board', { street: h.stage, cards: h.board.slice() });
 }
 
 function runOut(room) {
@@ -265,7 +293,7 @@ function showdown(room) {
   const scores = new Map();
   for (const p of P) if (!p.folded) scores.set(p.seat, E.evaluate([...p.hole, ...h.board]));
 
-  // build main + side pots from total contributions
+  // main + side pots from total contributions
   const contrib = P.map((p) => ({ p, amt: p.total }));
   const pots = [];
   while (contrib.some((c) => c.amt > 0)) {
@@ -299,13 +327,14 @@ function showdown(room) {
       room.seats[s].chips += amt;
       won[s] = (won[s] || 0) + amt;
     }
-    results.push({ amount: pot.amount, winners, hand: E.describe(best), single: pot.eligible.length === 1 });
+    results.push({ amount: pot.amount, winners, score: best, single: pot.eligible.length === 1 });
   }
-  for (const p of P) { p.bet = 0; }
+  for (const p of P) p.bet = 0;
   h.results = { pots: results, won };
   for (const r of results) {
     const names = r.winners.map((s) => room.seats[s].name).join(', ');
-    log(room, r.single ? `${names} 님이 ${money(r.amount)} 회수` : `${names} 님 승리 · ${r.hand} · ${money(r.amount)}`);
+    if (r.single) log(room, 'refund', { names, amount: r.amount });
+    else log(room, 'win', { names, score: r.score, amount: r.amount });
   }
   scheduleNext(room, CFG.NEXT_MS);
   changed(room);
@@ -318,8 +347,8 @@ function winUncontested(room, p) {
   p.chips += total;
   for (const q of handPlayers(room)) q.bet = 0;
   h.stage = 'done'; h.toAct = -1;
-  h.results = { pots: [{ amount: total, winners: [p.seat], hand: null }], won: { [p.seat]: total } };
-  log(room, `${p.name} 님이 ${money(total)} 획득 (모두 폴드)`);
+  h.results = { pots: [{ amount: total, winners: [p.seat], score: null }], won: { [p.seat]: total } };
+  log(room, 'foldWin', { name: p.name, amount: total });
   scheduleNext(room, CFG.FOLD_NEXT_MS);
   changed(room);
   return { ok: true };
@@ -333,7 +362,7 @@ function setTurnTimer(room) {
     const p = room.seats[seat];
     p.timeouts++;
     if (p.timeouts >= 2 || !p.connected) p.sittingOut = true;
-    log(room, `${p.name} 님 시간 초과`);
+    log(room, 'timeout', { name: p.name });
     act(room, p.token, h.currentBet - p.bet > 0 ? 'fold' : 'check', null, true);
   }, CFG.TURN_MS + 300);
 }
@@ -341,31 +370,30 @@ function setTurnTimer(room) {
 function act(room, token, action, amount, auto) {
   const h = room.hand;
   const p = room.byToken.get(token);
-  if (!h || !p || isOver(h) || h.toAct !== p.seat) return { error: '지금은 당신 차례가 아니에요' };
+  if (!h || !p || isOver(h) || h.toAct !== p.seat) return err('notTurn');
   const toCall = h.currentBet - p.bet;
-  const doCall = () => { put(p, toCall); p.lastAction = p.allIn ? '올인' : '콜'; };
+  const doCall = () => { put(p, toCall); p.lastAction = p.allIn ? 'allin' : 'call'; };
 
   switch (action) {
-    case 'fold': p.folded = true; p.lastAction = '폴드'; break;
+    case 'fold': p.folded = true; p.lastAction = 'fold'; break;
     case 'check':
-      if (toCall > 0) return { error: '체크할 수 없어요. 콜/레이즈/폴드 중에 고르세요' };
-      p.lastAction = '체크'; break;
+      if (toCall > 0) return err('cantCheck');
+      p.lastAction = 'check'; break;
     case 'call':
-      if (toCall <= 0) p.lastAction = '체크'; else doCall();
+      if (toCall <= 0) p.lastAction = 'check'; else doCall();
       break;
     case 'raise':
     case 'allin': {
       const maxTo = p.bet + p.chips;
       let to = action === 'allin' ? maxTo : Math.floor(Number(amount));
-      if (!Number.isFinite(to)) return { error: '금액이 올바르지 않아요' };
+      if (!Number.isFinite(to)) return err('badAmount');
       if (to >= maxTo) to = maxTo;
       if (to <= h.currentBet || p.raiseLocked) {
-        // can't raise: only a call (possibly all-in for less) is possible
-        if (action === 'allin' || to === maxTo) { if (toCall <= 0) p.lastAction = '체크'; else doCall(); break; }
-        return { error: p.raiseLocked ? '숏 올인 이후라 다시 레이즈할 수 없어요' : '레이즈 금액이 너무 적어요' };
+        if (action === 'allin' || to === maxTo) { if (toCall <= 0) p.lastAction = 'check'; else doCall(); break; }
+        return err(p.raiseLocked ? 'raiseLocked' : 'raiseSmall');
       }
       const minTo = h.currentBet + h.minRaise;
-      if (to < minTo && to < maxTo) return { error: `최소 ${money(minTo)}까지 레이즈해야 해요` };
+      if (to < minTo && to < maxTo) return err('minRaise', { amount: minTo });
       const wasBet = h.currentBet === 0;
       const raiseSize = to - h.currentBet;
       put(p, to - p.bet);
@@ -378,16 +406,15 @@ function act(room, token, action, amount, auto) {
         for (const q of others) if (q.acted) { q.acted = false; q.raiseLocked = true; }
       }
       h.currentBet = to;
-      p.lastAction = p.allIn ? '올인' : wasBet ? '벳' : '레이즈';
+      p.lastAction = p.allIn ? 'allin' : wasBet ? 'bet' : 'raise';
       break;
     }
-    default: return { error: '알 수 없는 액션' };
+    default: return err('unknown');
   }
   if (!auto) p.timeouts = 0;
   p.acted = true;
   clearTimeout(room.turnTimer);
-  const amt = ['콜', '벳', '레이즈', '올인'].includes(p.lastAction) ? ` ${money(p.bet)}` : '';
-  log(room, `${p.name}: ${p.lastAction}${amt}`);
+  log(room, 'action', { name: p.name, act: p.lastAction, amount: ['call', 'bet', 'raise', 'allin'].includes(p.lastAction) ? p.bet : 0 });
   advance(room, p.seat);
   return { ok: true };
 }
@@ -425,7 +452,7 @@ function view(room, token) {
   const pot = h ? handPlayers(room).reduce((s, p) => s + p.total, 0) : 0;
   const betsOut = h ? handPlayers(room).reduce((s, p) => s + p.bet, 0) : 0;
   return {
-    room: room.id, now: Date.now(), mySeat: me ? me.seat : null,
+    room: room.id, now: Date.now(), mySeat: me && !me.leaving ? me.seat : null,
     seats, handNo: room.handNo, running: room.running, nextAt: room.nextAt,
     cfg: { sb: CFG.SB, bb: CFG.BB, start: CFG.START_CHIPS, turnMs: CFG.TURN_MS, maxSeats: CFG.MAX_SEATS },
     hand: h ? {

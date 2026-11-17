@@ -163,7 +163,7 @@
     return shares.map((s, i) => ({ share: s / total, win: wins[i] / total }));
   }
 
-  const api = { RANKS, SUITS, RANK_LABEL, CAT, evaluate, category, describe, equity, multiEquity };
+  const api = { RANKS, SUITS, RANK_LABEL, CAT, evaluate, category, digits, describe, equity, multiEquity };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PokerEval = api;
 })(this);
