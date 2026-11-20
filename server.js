@@ -74,7 +74,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET') {
-    const file = path.normalize(path.join(PUB, p === '/' ? 'index.html' : decodeURIComponent(p)));
+    const alias = { '/': 'index.html', '/blackjack': 'blackjack.html' };
+    const file = path.normalize(path.join(PUB, alias[p] || decodeURIComponent(p)));
     if (!file.startsWith(PUB)) { res.writeHead(403); return res.end(); }
     fs.readFile(file, (err, buf) => {
       if (err) { res.writeHead(404); return res.end('Not found'); }
