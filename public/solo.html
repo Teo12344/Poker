@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0b0e">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Home Game">
+<title>Blackjack · Home Game</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/bj.css">
+</head>
+<body class="bj">
+<header class="topbar">
+  <a class="tbtn icon" href="/" id="homeLink">‹</a>
+  <div class="brand"><i>♠</i><span>Blackjack</span></div>
+  <span class="pill opt" id="shoePill"></span>
+  <span class="pill opt" id="statsPill"></span>
+  <div class="spacer"></div>
+  <label class="hintsw" id="hintSw"><input type="checkbox" id="hintToggle"><span class="sw"></span><span id="hintLabel"></span></label>
+  <button class="tbtn langbtn" id="langBtn"></button>
+</header>
+
+<main class="bjstage" id="stage">
+  <div class="bjtable" id="table">
+    <div class="bjfelt">
+      <svg class="arcs" viewBox="0 0 1000 220" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <defs>
+          <path id="arc1" d="M 140 40 Q 500 210 860 40"/>
+          <path id="arc2" d="M 190 85 Q 500 240 810 85"/>
+          <path id="arc3" d="M 240 125 Q 500 265 760 125"/>
+        </defs>
+        <text class="arc gold"><textPath href="#arc1" startOffset="50%" text-anchor="middle">BLACKJACK PAYS 3 TO 2</textPath></text>
+        <text class="arc"><textPath href="#arc2" startOffset="50%" text-anchor="middle">DEALER MUST DRAW TO 16 AND STAND ON ALL 17s</textPath></text>
+        <text class="arc ins"><textPath href="#arc3" startOffset="50%" text-anchor="middle">— INSURANCE PAYS 2 TO 1 —</textPath></text>
+      </svg>
+      <div class="shoe" id="shoe"><div class="shoe-cards"></div><div class="shoe-lip"></div></div>
+      <div class="discard" id="discard"></div>
+
+      <div class="dealer-zone">
+        <div class="zlabel" id="dealerLabelBox"></div>
+        <div class="bjhand dealerhand" id="dealerHand"></div>
+      </div>
+
+      <div class="tmsg bjmsg" id="msg"></div>
+
+      <div class="player-zone" id="playerHands"></div>
+
+      <div class="betcircle" id="betCircle">
+        <div class="chipstack big" id="betChips"></div>
+        <div class="betval" id="betVal"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="bjbar" id="bar">
+  <div class="bank">
+    <small id="bankLabel"></small>
+    <b id="bank"></b>
+    <span class="netflash" id="netFlash"></span>
+  </div>
+  <div class="bjcontrols" id="controls"></div>
+</footer>
+
+<div class="rotate"><span>📱</span><b id="rotateTxt"></b></div>
+<div class="toast" id="toast"></div>
+
+<script src="/bj-core.js"></script>
+<script src="/bj.js"></script>
+</body>
+</html>

@@ -74,7 +74,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET') {
-    const alias = { '/': 'index.html', '/blackjack': 'blackjack.html' };
+    const alias = { '/': 'index.html', '/solo': 'solo.html' };
     const file = path.normalize(path.join(PUB, alias[p] || decodeURIComponent(p)));
     if (!file.startsWith(PUB)) { res.writeHead(403); return res.end(); }
     fs.readFile(file, (err, buf) => {
