@@ -10,7 +10,7 @@
     if (!AC) return null;
     ctx = new AC();
     master = ctx.createGain();
-    master.gain.value = 0.55;
+    master.gain.value = 0.42;
     const comp = ctx.createDynamicsCompressor();
     master.connect(comp); comp.connect(ctx.destination);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 1, ctx.sampleRate);
@@ -43,22 +43,22 @@
     o.connect(g); g.connect(master);
     o.start(t); o.stop(t + attack + dur + 0.05);
   }
-  function clink(t, base = 3400, peak = 0.16) {
-    // ceramic chip: two inharmonic partials + a tiny click
+  function clink(t, base = 3000, peak = 0.1) {
+    // ceramic chip: two inharmonic partials + a soft tick
     const f = base * (0.9 + Math.random() * 0.2);
-    tone(t, f, 0.07, { type: 'sine', peak });
-    tone(t, f * 1.47, 0.05, { type: 'sine', peak: peak * 0.6 });
-    noise(t, 0.015, { type: 'highpass', freq: 5000, peak: peak * 0.8 });
+    tone(t, f, 0.08, { type: 'sine', peak, attack: 0.003 });
+    tone(t, f * 1.47, 0.05, { type: 'sine', peak: peak * 0.45, attack: 0.003 });
+    noise(t, 0.02, { freq: 4000, q: 1, peak: peak * 0.5, attack: 0.003 });
   }
 
   const SOUNDS = {
-    card(t) { noise(t, 0.07, { freq: 2200 + Math.random() * 800, q: 0.7, peak: 0.45 }); noise(t + 0.03, 0.03, { type: 'lowpass', freq: 900, peak: 0.25 }); },
-    flip(t) { noise(t, 0.035, { type: 'highpass', freq: 2500, peak: 0.4 }); noise(t + 0.045, 0.05, { freq: 1800, peak: 0.35 }); },
-    shuffle(t) { for (let i = 0; i < 14; i++) noise(t + i * 0.028 + Math.random() * 0.01, 0.03, { freq: 2600 + Math.random() * 1500, q: 1.2, peak: 0.22 }); noise(t + 0.43, 0.08, { type: 'lowpass', freq: 700, peak: 0.35 }); },
+    card(t) { noise(t, 0.09, { freq: 1700 + Math.random() * 500, q: 0.6, peak: 0.22, attack: 0.012 }); noise(t + 0.06, 0.05, { type: 'lowpass', freq: 600, peak: 0.12, attack: 0.008 }); },
+    flip(t) { noise(t, 0.05, { freq: 2200, q: 0.7, peak: 0.18, attack: 0.008 }); noise(t + 0.05, 0.06, { freq: 1400, q: 0.6, peak: 0.16, attack: 0.008 }); },
+    shuffle(t) { for (let i = 0; i < 16; i++) noise(t + i * 0.03 + Math.random() * 0.008, 0.035, { freq: 2000 + Math.random() * 900, q: 0.9, peak: 0.1, attack: 0.008 }); noise(t + 0.52, 0.09, { type: 'lowpass', freq: 500, peak: 0.16, attack: 0.01 }); },
     chip(t) { clink(t); clink(t + 0.045, 3000, 0.11); },
     chips(t) { for (let i = 0; i < 5; i++) clink(t + i * 0.035 + Math.random() * 0.015, 2800 + Math.random() * 1200, 0.12); },
     pot(t) { for (let i = 0; i < 9; i++) clink(t + i * 0.03 + Math.random() * 0.02, 2600 + Math.random() * 1400, 0.1); },
-    check(t) { tone(t, 140, 0.08, { peak: 0.5, slide: 0.6 }); noise(t, 0.03, { type: 'lowpass', freq: 600, peak: 0.4 }); tone(t + 0.12, 140, 0.08, { peak: 0.45, slide: 0.6 }); noise(t + 0.12, 0.03, { type: 'lowpass', freq: 600, peak: 0.35 }); },
+    check(t) { tone(t, 150, 0.09, { peak: 0.32, slide: 0.65, attack: 0.004 }); noise(t, 0.035, { type: 'lowpass', freq: 500, peak: 0.2, attack: 0.004 }); tone(t + 0.13, 150, 0.09, { peak: 0.28, slide: 0.65, attack: 0.004 }); noise(t + 0.13, 0.035, { type: 'lowpass', freq: 500, peak: 0.17, attack: 0.004 }); },
     fold(t) { noise(t, 0.12, { freq: 1400, q: 0.5, peak: 0.25, attack: 0.03 }); },
     turn(t) { tone(t, 880, 0.35, { peak: 0.18 }); tone(t + 0.12, 1320, 0.45, { peak: 0.16 }); },
     click(t) { tone(t, 1800, 0.025, { type: 'triangle', peak: 0.08 }); },

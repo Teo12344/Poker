@@ -213,7 +213,7 @@
         const r = el.getBoundingClientRect();
         el.style.setProperty('--dx', `${sx - (r.left + r.width / 2)}px`);
         el.style.setProperty('--dy', `${sy - (r.top + r.height / 2)}px`);
-        const delay = (flyDelay + i++) * 230;
+        const delay = (flyDelay + i++) * 300;
         el.style.animationDelay = `${delay}ms`;
         Sound.play('card', delay);
       }
@@ -227,7 +227,7 @@
     flyDelay = extraFly;
     render();
     const pending = [...document.querySelectorAll('.card.fly')].filter((el) => el.style.animationDelay).length;
-    await sleep(pending * 230 + (pending ? 400 : 0));
+    await sleep(pending * 300 + (pending ? 280 : 0));
   }
 
   // ---------- flow ----------
@@ -263,16 +263,18 @@
     if (g.phase === 'over') resetTable();
     roundId++; shownKeys = new Set();
     g.deal();
-    Sound.play('shuffle');
-    render();
-    await sleep(560);
     save();
-    // deal in real order: player, dealer, player, dealer(hidden)
+    // hide the dealt cards, shuffle first, then deal one card at a time:
+    // player, dealer, player, dealer (face down)
     const finalDealer = g.dealer.cards.slice(), finalHand = g.hands[0].cards.slice();
     const phase = g.phase, hidden = g.dealer.hidden;
     const results = g.hands.map((h) => h.result);
     g.hands.forEach((h) => { h.result = null; });
     g.phase = 'dealing';
+    g.hands[0].cards = []; g.dealer.cards = []; g.dealer.hidden = true;
+    render();
+    Sound.play('shuffle');
+    await sleep(650);
     const steps = [[1, 0], [1, 1], [2, 1], [2, 2]];
     for (const [p, dd] of steps) {
       g.hands[0].cards = finalHand.slice(0, p);

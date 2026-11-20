@@ -72,7 +72,7 @@ a.tbtn{text-decoration:none;display:inline-flex;align-items:center}
 .betcircle.empty::after{content:attr(data-label);font-size:calc(var(--cu)*.95);letter-spacing:.15em;color:rgba(255,255,255,.4);font-weight:700}
 
 /* card flight from the shoe */
-.fly{animation:fly .42s cubic-bezier(.2,.8,.25,1) both}
+.fly{animation:fly .5s cubic-bezier(.25,.75,.3,1) both}
 @keyframes fly{from{transform:translate(var(--dx),var(--dy)) rotate(-30deg) scale(.7);opacity:.2}}
 .flipin{animation:flipin .45s cubic-bezier(.2,.8,.25,1) both}
 @keyframes flipin{0%{transform:perspective(700px) rotateY(90deg)}100%{transform:perspective(700px) rotateY(0)}}

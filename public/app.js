@@ -403,8 +403,8 @@
       if (l.k === 'hand') {
         Sound.play('shuffle', d); d += 520;
         const n = s.seats.filter((p) => p && p.inHand).length;
-        for (let i = 0; i < n * 2; i++) Sound.play('card', d + i * 90);
-        d += n * 180;
+        for (let i = 0; i < n * 2; i++) Sound.play('card', d + i * 140);
+        d += n * 280;
       } else if (l.k === 'action') {
         const a = l.p.act;
         Sound.play(a === 'check' ? 'check' : a === 'fold' ? 'fold' : a === 'call' ? 'chip' : 'chips', d); d += 140;
