@@ -1,9 +1,8 @@
-// Blackjack rules engine (no UI). Rules: 6 decks, dealer stands on all 17s, blackjack pays 3:2,
-// dealer peeks for blackjack, insurance pays 2:1, double on any first two cards, double after split,
-// split up to 4 hands, split aces receive one card each.
+// Blackjack rules engine (no UI). Rules: 1 deck shuffled fresh before every hand, dealer hits soft 17 (H17),
+// blackjack pays 3:2, dealer peeks for blackjack, insurance pays 2:1, double on any first two cards,
+// double after split, split up to 4 hands, split aces receive one card each.
 (function (root) {
-  const DECKS = 6;
-  const CUT = 0.75; // reshuffle once 75% of the shoe is used
+  const DECKS = 1;
   const MAX_HANDS = 4;
 
   const rank = (c) => c >> 2;                    // 0..12 => 2..A
@@ -31,7 +30,7 @@
     return s;
   }
 
-  // ---- basic strategy (6 decks, S17, double after split, no surrender) ----
+  // ---- basic strategy (1 deck, dealer hits soft 17, double after split, no surrender) ----
   // returns 'H' hit, 'S' stand, 'D' double, 'P' split
   function strategy(cards, upCard, canDouble, canSplit) {
     const up = cardValue(upCard); // 2..11
@@ -41,26 +40,26 @@
       const v = cardValue(cards[0]);
       if (v === 11 || v === 8) return 'P';
       if (v === 9 && ![7, 10, 11].includes(up)) return 'P';
-      if ((v === 7 || v === 3 || v === 2) && up <= 7) return 'P';
-      if (v === 6 && up <= 6) return 'P';
+      if ((v === 7 || v === 6 || v === 3 || v === 2) && up <= 7) return 'P';
       if (v === 4 && (up === 5 || up === 6)) return 'P';
     }
     if (soft && cards.length >= 2 && total <= 21 && total >= 13) {
-      if (total >= 19) return 'S';
+      if (total >= 20) return 'S';
+      if (total === 19) return up === 6 ? (canDouble ? 'D' : 'S') : 'S';
       if (total === 18) {
         if (up >= 3 && up <= 6) return D(true, 'S');
         return up <= 8 ? 'S' : 'H';
       }
-      if (total === 17) return D(up >= 3 && up <= 6, 'H') || 'H';
-      if (total >= 15) return D(up >= 4 && up <= 6, 'H') || 'H';
-      return D(up >= 5 && up <= 6, 'H') || 'H';
+      if (total === 17) return D(up >= 2 && up <= 6, 'H') || 'H';
+      return D(up >= 4 && up <= 6, 'H') || 'H';
     }
     if (total >= 17) return 'S';
     if (total >= 13) return up <= 6 ? 'S' : 'H';
     if (total === 12) return up >= 4 && up <= 6 ? 'S' : 'H';
-    if (total === 11) return D(up <= 10, 'H') || 'H';
+    if (total === 11) return D(true, 'H');
     if (total === 10) return D(up <= 9, 'H') || 'H';
-    if (total === 9) return D(up >= 3 && up <= 6, 'H') || 'H';
+    if (total === 9) return D(up <= 6, 'H') || 'H';
+    if (total === 8) return D(up === 5 || up === 6, 'H') || 'H';
     return 'H';
   }
 
@@ -94,8 +93,8 @@
     // deals the four opening cards; returns the order they were dealt for animation
     deal() {
       if (this.bet <= 0 || this.bet > this.chips) return null;
-      this.reshuffled = false;
-      if (this.shoe.length < this.shoeSize * (1 - CUT)) { this.shoe = newShoe(); this.reshuffled = true; }
+      this.shoe = newShoe(); // fresh, fully shuffled deck every hand
+      this.reshuffled = true;
       this.chips -= this.bet;
       this.lastBet = this.bet;
       this.hands = [{ cards: [], bet: this.bet, done: false, doubled: false, splitAces: false, fromSplit: false, result: null, payout: 0 }];
@@ -192,7 +191,8 @@
     dealerNeedsCard() {
       if (this.phase !== 'dealer') return false;
       if (this.hands.every((h) => handValue(h.cards).total > 21)) return false;
-      return handValue(this.dealer.cards).total < 17; // stands on soft 17
+      const { total, soft } = handValue(this.dealer.cards);
+      return total < 17 || (total === 17 && soft); // hits soft 17 (H17)
     }
     dealerHit() { this.dealer.cards.push(this.draw()); }
     finishDealer() { while (this.dealerNeedsCard()) this.dealerHit(); this.settle(); }

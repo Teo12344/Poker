@@ -10,7 +10,7 @@
   // ---------- text ----------
   const TXT = {
     ko: {
-      dealer: '딜러', bank: '보유 칩', shoe: '남은 카드 {n}장', stats: '{w}승 {l}패 {p}무', hint: 'AI 추천',
+      dealer: '딜러', bank: '보유 칩', shoe: '1덱 · 매 판 새로 셔플', stats: '{w}승 {l}패 {p}무', hint: 'AI 추천',
       placeBet: '칩을 눌러 베팅하고 <b>딜</b>을 누르세요', betHere: 'BET', clear: '지우기', x2: '2배', allin: '올인', deal: '딜',
       dealAgain: '다시 딜 · {amt}', hit: '히트', stand: '스탠드', double: '더블', split: '스플릿',
       insQ: '딜러 오픈 카드가 A예요. 인슈어런스를 걸까요?', insYes: '인슈어런스 {amt}', insNo: '안 함', evenQ: '블랙잭이에요! 딜러가 A라서 이븐 머니를 받을 수 있어요',
@@ -24,7 +24,7 @@
       notEnough: '칩이 부족해요',
     },
     en: {
-      dealer: 'DEALER', bank: 'Bankroll', shoe: '{n} cards left', stats: '{w}W {l}L {p}P', hint: 'AI hint',
+      dealer: 'DEALER', bank: 'Bankroll', shoe: '1 deck · fresh shuffle every hand', stats: '{w}W {l}L {p}P', hint: 'AI hint',
       placeBet: 'Tap chips to bet, then press <b>Deal</b>', betHere: 'BET', clear: 'Clear', x2: '2×', allin: 'All-in', deal: 'Deal',
       dealAgain: 'Deal again · {amt}', hit: 'Hit', stand: 'Stand', double: 'Double', split: 'Split',
       insQ: 'Dealer shows an Ace. Take insurance?', insYes: 'Insurance {amt}', insNo: 'No thanks', evenQ: 'Blackjack! Dealer shows an Ace — take even money?',
@@ -128,9 +128,7 @@
     $('#betCircle').dataset.label = t('betHere');
 
     // shoe & discard
-    const used = g.shoeSize - g.remaining;
-    $('#discard').innerHTML = used > 0 ? `<div class="stack" style="height:${Math.min(100, 8 + used / g.shoeSize * 140)}%"></div>` : '';
-    $('#shoePill').textContent = t('shoe', { n: g.remaining });
+    $('#shoePill').textContent = t('shoe');
     $('#statsPill').textContent = t('stats', stats);
 
     // bank
@@ -210,11 +208,14 @@
       const k = el.dataset.k;
       if (shownKeys.has(k)) return;
       shownKeys.add(k);
+      if (el.classList.contains('flipin')) Sound.play('flip');
       if (el.classList.contains('fly')) {
         const r = el.getBoundingClientRect();
         el.style.setProperty('--dx', `${sx - (r.left + r.width / 2)}px`);
         el.style.setProperty('--dy', `${sy - (r.top + r.height / 2)}px`);
-        el.style.animationDelay = `${(flyDelay + i++) * 230}ms`;
+        const delay = (flyDelay + i++) * 230;
+        el.style.animationDelay = `${delay}ms`;
+        Sound.play('card', delay);
       }
     });
     const total = flyDelay + i;
@@ -233,16 +234,23 @@
   async function act(a, arg) {
     if (busy) return;
     switch (a) {
-      case 'chip': if (!g.addBet(arg)) toast(t('notEnough')); if (g.phase === 'over') resetTable(); save(); render(); return;
-      case 'clear': g.clearBet(); if (g.phase === 'over') resetTable(); render(); return;
-      case 'x2': if (g.bet * 2 <= g.chips) g.bet *= 2; if (g.phase === 'over') resetTable(); render(); return;
-      case 'allin': g.allIn(); if (g.phase === 'over') resetTable(); render(); return;
+      case 'chip': if (!g.addBet(arg)) toast(t('notEnough')); else Sound.play('chip'); if (g.phase === 'over') resetTable(); save(); render(); return;
+      case 'clear': g.clearBet(); Sound.play('click'); if (g.phase === 'over') resetTable(); render(); return;
+      case 'x2': if (g.bet * 2 <= g.chips) { g.bet *= 2; Sound.play('chips'); } if (g.phase === 'over') resetTable(); render(); return;
+      case 'allin': g.allIn(); Sound.play('chips'); if (g.phase === 'over') resetTable(); render(); return;
       case 'rebuy': g.chips = START; g.bet = 1000; save(); render(); return;
       case 'deal': return deal();
       case 'insYes': case 'insNo':
-        busy = true; g.takeInsurance(a === 'insYes'); await afterAction(); return;
+        busy = true; if (a === 'insYes') Sound.play('chip'); g.takeInsurance(a === 'insYes'); await afterAction(); return;
       case 'hit': case 'stand': case 'double': case 'split':
-        busy = true; g[a](); await afterAction(); return;
+        busy = true;
+        {
+          const h = g.hand;
+          if (a === 'double' || a === 'split') Sound.play('chips');
+          g[a]();
+          if (h && (a === 'hit' || a === 'double') && handValue(h.cards).total > 21) Sound.play('bust', 450);
+        }
+        await afterAction(); return;
     }
   }
   function resetTable() {
@@ -255,7 +263,9 @@
     if (g.phase === 'over') resetTable();
     roundId++; shownKeys = new Set();
     g.deal();
-    if (g.reshuffled && roundId > 1) toast(t('shuffled'), true);
+    Sound.play('shuffle');
+    render();
+    await sleep(560);
     save();
     // deal in real order: player, dealer, player, dealer(hidden)
     const finalDealer = g.dealer.cards.slice(), finalHand = g.hands[0].cards.slice();
@@ -296,6 +306,9 @@
       else stats.l++;
     }
     save();
+    const anyBJ = g.hands.some((h) => h.result === 'blackjack');
+    const allBust = g.hands.every((h) => h.result === 'bust');
+    Sound.play(anyBJ ? 'blackjack' : g.net > 0 ? 'win' : g.net < 0 ? (allBust ? 'lose' : 'lose') : 'push', allBust ? 500 : 150);
     const nf = $('#netFlash');
     nf.textContent = g.net > 0 ? '+' + money(g.net) : g.net < 0 ? '−' + money(-g.net) : '';
     nf.style.color = g.net > 0 ? '#7ef0a8' : '#ff8a8a';
@@ -321,6 +334,9 @@
   });
   $('#hintToggle').checked = hintOn;
   $('#hintToggle').addEventListener('change', (e) => { hintOn = e.target.checked; localStorage.setItem('pk_bj_hint', hintOn ? '1' : '0'); render(); });
+  const soundIcon = () => { $('#soundBtn').textContent = Sound.enabled ? '🔊' : '🔇'; };
+  $('#soundBtn').addEventListener('click', () => { Sound.toggle(); soundIcon(); });
+  soundIcon();
   $('#langBtn').addEventListener('click', () => { lang = lang === 'ko' ? 'en' : 'ko'; localStorage.setItem('pk_lang', lang); applyStatic(); render(); });
   function applyStatic() {
     document.documentElement.lang = lang;

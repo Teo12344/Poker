@@ -390,15 +390,54 @@
   requestAnimationFrame(tick);
 
   // ---------- network ----------
+  // ---------- sounds from table events ----------
+  let lastLogKey = null, hadActions = false, winPlayed = -1;
+  const logKey = (l) => l ? `${l.t}|${l.k}|${JSON.stringify(l.p)}` : '';
+  function playSounds(s) {
+    const log = s.log || [];
+    if (lastLogKey === null) { lastLogKey = logKey(log[log.length - 1]); hadActions = !!s.actions; return; }
+    const idx = log.findIndex((l) => logKey(l) === lastLogKey);
+    const fresh = idx >= 0 ? log.slice(idx + 1) : log.slice(-2);
+    let d = 0;
+    for (const l of fresh) {
+      if (l.k === 'hand') {
+        Sound.play('shuffle', d); d += 520;
+        const n = s.seats.filter((p) => p && p.inHand).length;
+        for (let i = 0; i < n * 2; i++) Sound.play('card', d + i * 90);
+        d += n * 180;
+      } else if (l.k === 'action') {
+        const a = l.p.act;
+        Sound.play(a === 'check' ? 'check' : a === 'fold' ? 'fold' : a === 'call' ? 'chip' : 'chips', d); d += 140;
+      } else if (l.k === 'board') {
+        const k = l.p.street === 'flop' ? 3 : 1;
+        for (let i = 0; i < k; i++) Sound.play('flip', d + i * 160);
+        d += k * 160;
+      } else if (l.k === 'win' || l.k === 'foldWin' || l.k === 'refund') {
+        Sound.play('pot', d); d += 200;
+      }
+    }
+    if (log.length) lastLogKey = logKey(log[log.length - 1]);
+    const h = s.hand || {};
+    if (h.results && s.mySeat != null && h.results.won && h.results.won[s.mySeat] && winPlayed !== s.handNo) {
+      winPlayed = s.handNo; Sound.play('win', d + 100);
+    }
+    if (s.actions && !hadActions) Sound.play('turn', d + 150);
+    hadActions = !!s.actions;
+  }
+  const soundIcon = () => { $('#soundBtn').textContent = Sound.enabled ? '🔊' : '🔇'; };
+  $('#soundBtn').onclick = () => { Sound.toggle(); soundIcon(); };
+  soundIcon();
+
   function connect() {
     if (es) es.close();
-    state = null;
+    state = null; lastLogKey = null;
     es = new EventSource(`/events?room=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`);
     es.onopen = () => $('#conn').classList.remove('off');
     es.onerror = () => $('#conn').classList.add('off');
     es.onmessage = (e) => {
       state = JSON.parse(e.data);
       clockOffset = state.now - Date.now();
+      try { playSounds(state); } catch (err) { /* sound is optional */ }
       if (state.mySeat != null) { watching = false; if (screen !== 'game') showScreen('game'); }
       else if (screen === 'game' && !watching) { showScreen('home'); }
       if (screen === 'game') render(); else renderHome();

@@ -24,6 +24,7 @@
   <span class="pill opt" id="statsPill"></span>
   <div class="spacer"></div>
   <label class="hintsw" id="hintSw"><input type="checkbox" id="hintToggle"><span class="sw"></span><span id="hintLabel"></span></label>
+  <button class="tbtn icon" id="soundBtn" title="Sound">🔊</button>
   <button class="tbtn langbtn" id="langBtn"></button>
 </header>
 
@@ -37,11 +38,10 @@
           <path id="arc3" d="M 240 125 Q 500 265 760 125"/>
         </defs>
         <text class="arc gold"><textPath href="#arc1" startOffset="50%" text-anchor="middle">BLACKJACK PAYS 3 TO 2</textPath></text>
-        <text class="arc"><textPath href="#arc2" startOffset="50%" text-anchor="middle">DEALER MUST DRAW TO 16 AND STAND ON ALL 17s</textPath></text>
+        <text class="arc"><textPath href="#arc2" startOffset="50%" text-anchor="middle">DEALER HITS SOFT 17 · ONE DECK, SHUFFLED EVERY HAND</textPath></text>
         <text class="arc ins"><textPath href="#arc3" startOffset="50%" text-anchor="middle">— INSURANCE PAYS 2 TO 1 —</textPath></text>
       </svg>
       <div class="shoe" id="shoe"><div class="shoe-cards"></div><div class="shoe-lip"></div></div>
-      <div class="discard" id="discard"></div>
 
       <div class="dealer-zone">
         <div class="zlabel" id="dealerLabelBox"></div>
@@ -72,6 +72,7 @@
 <div class="rotate"><span>📱</span><b id="rotateTxt"></b></div>
 <div class="toast" id="toast"></div>
 
+<script src="/sound.js"></script>
 <script src="/bj-core.js"></script>
 <script src="/bj.js"></script>
 </body>
